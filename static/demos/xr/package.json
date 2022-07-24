@@ -1,0 +1,16 @@
+{
+  "dependencies": {
+    "node-static": "^0.7.11",
+    "npm": "^8.5.5"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "name": "ar_m_t",
+  "description": "Wroks on Android ARCore [supported devices](https://developers.google.com/ar/discover/supported-devices) with Chrome 81+",
+  "version": "1.0.0",
+  "main": "server.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

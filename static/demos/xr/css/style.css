@@ -1,0 +1,19 @@
+div.info-area {
+  z-index: 4;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  background-color: rgba(14, 16, 22, 0.644);
+  text-align: center;
+  overflow:hidden;
+}
+
+button {
+  width: 100px;
+  height: 35px;
+  margin: 15px;
+}
+ul{
+  list-style:none;
+  list-style-position: outside;
+}

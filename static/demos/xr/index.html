@@ -1,0 +1,640 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
+    <meta name='mobile-web-app-capable' content='yes'>
+    <meta name='apple-mobile-web-app-capable' content='yes'>
+    <link rel='stylesheet' href='css/style.css'>
+    <title>Tape Ruler</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="text/javascript" src="../../easyrtc/easyrtc.js"></script>
+    <script type="text/javascript" src="js/demo_data_channel_messaging.js"></script>
+  </head>
+  <body style="overflow:hidden;" onload="connect()">
+    <div id="main" >
+      <div id="sendMessageArea" >
+        <div id="iam"></div>
+        <textarea id="sendMessageText"style="display:none;"></textarea>
+        <div id="otherClients"></div>
+      </div>
+      <div id="receiveMessageArea">
+        
+        <div id="conversation"></div>
+      </div>
+    </div>
+    <div id="overlay" style="overflow:hidden;">
+      <div class="info-area" id="gui" style="display:none; overflow:hidden;opacity:0.8; position:absolute; width:100%;border-radius: 15px;">
+        <div id="info" ></div>
+        <!--button id="xr-button" disabled>XR not found</button-->
+        <ul id="mUl" style="overflow:hidden;">
+          <li>
+          <button id="xr-button" style="background-color:green;margin-left:-9px;">XR not found</button>
+          </li>
+        </ul>
+        
+      </div>
+    </div>
+    
+    <script type="module">
+
+      import * as THREE from './three.js/build/three.module.js';
+      //import { GLTFLoader } from './three.js/examples/jsm/loaders/GLTFLoader.js'
+
+      let renderer = null;
+      let scene = null;
+      let camera = null;
+      let model = null;
+      let mixer = null;
+      let action = null;
+      let reticle = null;
+      let lastFrame = Date.now();
+
+      let width=window.innerWidth, height=window.innerHeight;
+
+      // button to start XR experience
+      const xrButton = document.getElementById('xr-button');
+      // to display debug information
+      const info = document.getElementById('info');
+      // to control the xr session
+      let xrSession = null;
+      // reference space used within an application https://developer.mozilla.org/en-US/docs/Web/API/XRSession/requestReferenceSpace
+      let xrRefSpace = null;
+      // for hit testing with detected surfaces
+      let xrHitTestSource = null;
+
+      // Canvas OpenGL context used for rendering
+      let gl = null;
+
+      /////////////////////// mie var
+      const pointG=new THREE.Group();
+      let container, labelContainer;
+      let pointer=new THREE.Vector3();
+      let measurements = [];
+      let labels = [];
+      let currentLine = null;
+      let tempLine=null;
+      let plant=[];
+      let roomLine;
+      let trig=0;
+      let counter=0;
+      let hold=0;
+      let sHcenter=[];
+      let waypZ;
+      let cameraTrig=0;
+      var touchStartTimeStamp = 0;
+      var touchEndTimeStamp   = 0;
+
+      document.addEventListener('keydown', logKey);
+
+      function logKey(e) {
+        console.log('logKey  ',e)
+        e.preventDefault();
+        if(e.srcElement.id =='close'){
+            hold=0;
+            measurements.push(new THREE.Vector3(measurements[0].x,measurements[0].y,measurements[0].z));
+            counter=counter+1;
+            currentLine=initLine(-1);
+            scene.add(currentLine);
+            trig=0;
+            roomData();
+        }
+        if(e.srcElement.id =='rep'){
+           hold=0;
+           export2txt();
+        }
+        if(e.srcElement.id =='undo'){
+           hold=0;
+           measurements.splice(measurements.length-1,2);
+           counter=counter-1;
+           currentLine=initLine(measurements[counter-1]);
+           initWayP(measurements);
+           scene.add(currentLine);
+    
+        }
+        if(e.code=='KeyA'){
+           hold=0;
+           measurements.push(new THREE.Vector3(measurements[0].x,measurements[0].y,measurements[0].z));
+           counter=counter+1;
+           currentLine=initLine(-1);
+            scene.add(currentLine);
+           trig=0;
+           roomData();
+        }
+        if(e.code=='KeyS'){
+           hold=0;
+          export2txt();
+        }
+        if(e.code=='KeyD'){
+          hold=0;
+          measurements.splice(measurements.length-1,2);
+         counter=counter-1;
+         currentLine=initLine(measurements[counter-1]);
+          scene.add(currentLine);
+        }
+      }
+
+      const initScene = (gl, session) => {
+        
+        xrButton.style.display='none';
+        scene = new THREE.Scene();
+
+        camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+    
+        var light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+        light.position.set(0.5, 1, 0.25);
+        scene.add(light);
+
+        // create and configure three.js renderer with XR support
+        renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: true,
+            autoClear: true,
+            context: gl,
+        });
+        
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(width, height);
+        renderer.xr.enabled = true;
+        renderer.xr.setReferenceSpaceType('local');
+        renderer.xr.setSession(session);
+        
+        var containero=document.getElementById("overlay");
+        containero.addEventListener("pointerdown", onInputStart, false);
+        containero.addEventListener('pointerup', onTouchEnd,false);
+        
+        var gui=document.getElementById("gui");
+        gui.style.width='90px';
+        gui.style.setProperty( 'margin-top',height-350+'px'); 
+        gui.style.setProperty( 'margin-left',width-230+'px');
+        
+        
+        let refGui=document.getElementById('mUl')       
+        var bImg=['undo','close','rep'];
+        for(var a=0;a<bImg.length;a++){
+          let liBut=document.createElement('li');
+          
+          let butGui=document.createElement('Button');
+          
+          liBut.appendChild(butGui);
+          refGui.appendChild(liBut);
+          
+          var bUrl="./img/"+bImg[a]+".png"
+          butGui.style.backgroundImage='url('+bUrl+')';
+          butGui.style.height= '64px';
+          butGui.style.width= '64px';
+          butGui.style.border='none';
+          butGui.style.setProperty( 'margin-left','-32px');
+          butGui.style.backgroundColor='rgba(0, 0, 0,0)';
+         
+          butGui.id=bImg[a];
+          if(bImg[a]=='close'){
+            butGui.addEventListener('pointerup',logKey);
+          }
+          if(bImg[a]=='rep'){
+            butGui.addEventListener('pointerup',logKey);
+
+          }
+          if(bImg[a]=='undo'){
+            butGui.addEventListener('pointerup',logKey);
+
+          }
+        
+        }
+
+        // simple sprite to indicate detected surfaces
+        reticle = new THREE.Mesh(
+          new THREE.RingBufferGeometry(0.10, 0.12, 32).rotateX(-Math.PI / 2),
+          new THREE.MeshPhongMaterial({ color: 0x0fff00 })
+        );
+        // we will update it's matrix later using WebXR hit test pose matrix
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
+      };
+    
+      function export2txt() {
+          plant.push(measurements);
+
+          scene.remove(currentLine);
+          pointG.clear();
+  
+          for(var pIn=0;pIn<plant.length;pIn++){
+             let lineGeometry;
+             let lineMaterial = new THREE.LineBasicMaterial({
+               color: 0xffffff,
+               linewidth: 5,
+               linecap: 'round'
+             });
+             lineGeometry = new THREE.BufferGeometry().setFromPoints(plant[pIn]);
+             roomLine=new THREE.Line(lineGeometry, lineMaterial);
+             scene.add(roomLine);
+          }
+  
+          measurements=[];
+         counter=0;
+          var pasTs=[];
+
+         pasTs.splice(0,0,plant);
+         pasTs.splice(1,0,sHcenter);
+         var passaggio={a:[]};
+         var passDue=[];
+         for(var inPoli=0;inPoli<plant.length-1;inPoli++){
+           for(var inLati=0;inLati <plant[inPoli].length-1;inLati++){
+             var strt,endt,ltt;
+              strt=[ plant[inPoli][inLati].x , plant[inPoli][inLati].y ];
+              endt=[ plant[inPoli][inLati+1].x , plant[inPoli][inLati+1].y ]
+              ltt=[strt,endt]
+              passDue.push(ltt);
+
+           }
+           passaggio.a.push(passDue);
+           passDue=[];
+
+        }
+        var spass=new Array();
+       spass.push(passaggio);
+       sessionStorage.setItem('passaggio', JSON.stringify(passaggio));
+
+       window.location.href = "./third/index.html";
+      }
+
+function roomData() {
+  plant.push(measurements);
+
+  scene.remove(currentLine);
+  pointG.clear();
+  
+  for(var pIn=0;pIn<plant.length;pIn++){
+    
+
+    let lineGeometry;
+    let lineMaterial = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      linewidth: 5,
+      linecap: 'round'
+    });
+
+    lineGeometry = new THREE.BufferGeometry().setFromPoints(plant[pIn]);
+    roomLine=new THREE.Line(lineGeometry, lineMaterial);
+    scene.add(roomLine);
+    /*
+    const sHpath = new THREE.Path();
+
+    sHpath.autoClose=true;
+
+    for(var inShLin=0;inShLin<plant[pIn].length;inShLin++){
+      if(inShLin==0){
+        sHpath.moveTo(plant[pIn][inShLin].x,plant[pIn][inShLin].y)
+      }else{
+        sHpath.lineTo(plant[pIn][inShLin].x,plant[pIn][inShLin].y)
+      }
+
+    }
+    
+    const sHpoints = sHpath.getPoints();
+
+    const heartShape = new THREE.Shape(sHpoints);
+
+    const extrudeSettings = { depth: 8, bevelEnabled: true, bevelSegments: 2, steps: 2, bevelSize: 1, bevelThickness: 1 };
+
+    const sHgeometry = new THREE.ExtrudeGeometry( heartShape, extrudeSettings );
+    const sHgeometry1 = new THREE.BufferGeometry().setFromPoints( sHpoints );
+    const clr= new THREE.Color(0x38bad256);
+    const sHmesh = new THREE.Mesh( sHgeometry, new THREE.MeshPhongMaterial({color:clr}) );
+    
+    sHgeometry1.attributes.position.needsUpdate = true;
+    sHgeometry1.computeBoundingSphere();
+    if(pIn==plant.length-1){
+      sHcenter.splice(pIn,0,sHgeometry1.boundingSphere.center);
+      console.log(sHcenter);
+      }else{
+
+      }
+    */
+    //scene.add( sHmesh );
+
+  }
+
+  measurements=[];
+  counter=0;
+}
+
+function matrixToVector(matrix) {
+  let vector = new THREE.Vector3();
+  vector.setFromMatrixPosition(matrix);
+  return vector;
+}
+
+function initLine(pointe) {
+  
+          
+  var tempGeo
+  let lineMaterial = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    linewidth: 5,
+    linecap: 'round'
+  });
+  if(counter==-1){
+      return;
+  }else{
+      if(tempLine){
+        scene.remove(tempLine)
+      };
+      if(pointe!=-1){
+        var tempPunt=[];
+        tempPunt.push(measurements[counter-1]);
+        tempPunt.push(pointe);
+        tempGeo= new THREE.BufferGeometry().setFromPoints(tempPunt);
+        scene.remove(currentLine);
+      }
+  }
+  let lineGeometry
+  if(pointe!=-1){
+    
+    
+    lineGeometry = new THREE.BufferGeometry().setFromPoints(measurements);
+    
+    tempLine=new THREE.Line(tempGeo, lineMaterial);
+    scene.add(tempLine);
+    
+    initWayP(measurements);
+    return new THREE.Line(lineGeometry, lineMaterial);
+  }else{
+    if(tempLine){
+      scene.remove(tempLine);
+      scene.remove(currentLine);
+      lineGeometry = new THREE.BufferGeometry().setFromPoints(measurements);
+      return new THREE.Line(lineGeometry, lineMaterial);
+
+    };
+  }
+
+
+}
+
+function updateLine(matrix) {
+  let positions = tempLine.geometry.attributes.position.array;
+
+  positions[3] = matrix.x;
+  positions[4] = matrix.y;
+  positions[5] = matrix.z;
+
+  tempLine.geometry.attributes.position.needsUpdate = true;
+  tempLine.geometry.computeBoundingSphere();
+}
+
+function onTouchEnd(e) {
+    touchEndTimeStamp = e.timeStamp;
+    /// !!!!  START IF //!!!!  --->
+    //    if (doubleTrig==0){
+
+      var difff=new Date().getTime();
+
+      if(difff-hold<700 )   {
+
+        hold=0;
+        
+        pointer.x = (event.clientX / width) * 2 - 1;
+        pointer.y = -(event.clientY / height) * 2 + 1;
+
+        vectorio.set( pointer.x, pointer.y, ( camera.near + camera.far ) / ( camera.near - camera.far ) );
+        vectorio.unproject( camera );
+        //var p=new THREE.Vector3(vectorio.x,vectorio.y,0);
+        
+        var pic=new THREE.Vector3(pointer.x,pointer.y,0);
+        //measurements.push(p);
+        if (reticle.visible) {
+          measurements.push(matrixToVector(reticle.matrix));
+        
+          counter++;
+        
+          if (counter>=1) {
+           currentLine=initLine(measurements[counter-1]);
+           scene.add(currentLine);         
+          }
+          trig=1;
+        }
+      }// in miliseconds
+    /// !!!!  end IF //!!!! --->
+//  }
+}
+
+const vectorio = new THREE.Vector3();
+
+function onInputStart(event) {
+
+///////// START  parte del doubletrig  ///////
+/*
+  if(event.touches.length > 1) {
+        doubleTrig=1;
+    }else{
+        doubleTrig=0;
+    }
+*/
+ ///////  END    parte del doubletrig  ///////
+
+  touchStartTimeStamp = event.timeStamp;
+  hold=new Date().getTime();
+
+}
+
+
+function initWayP(point) {
+  if (pointG.children.length>0){
+    for(var inP=0;inP< pointG.children.length;inP++){
+      
+      pointG.remove(pointG.children[inP]);
+    }
+    
+  }
+  
+  for (var nSc=0;nSc<scene.children.length;nSc++){
+
+     if(scene.children[nSc].name=="WayP1") {
+       scene.remove(waypZ);
+     }
+  }
+
+  //
+  for (var an=0;an<measurements.length;an++){
+  //let ring = new THREE.RingBufferGeometry(0.045, 0.05, 32).rotateX(- Math.PI / 2);
+
+    if (an==0 && trig==1){
+
+      let dotoZ = new THREE.SphereGeometry(0.02, 16, 12);
+      let colr={color: "green"};
+      waypZ = new THREE.Mesh(dotoZ, new THREE.MeshBasicMaterial(colr));
+
+      waypZ.name = "WayP1";
+      //waypZ.scale.set(2,2,2)
+      waypZ.position.copy(measurements[an]);
+      scene.add(waypZ)
+    }else{
+      let doto = new THREE.SphereGeometry(0.02, 16, 12);
+      let colr={color: "red"};
+      let wayp = new THREE.Mesh(doto, new THREE.MeshBasicMaterial(colr));
+
+      wayp.name = "WayP";
+
+      wayp.position.copy(measurements[an]);
+      pointG.add(wayp);
+
+    }
+
+  }
+
+}
+
+    function checkXR() {
+        
+        if (!window.isSecureContext) {
+          document.getElementById("warning").innerText = "WebXR unavailable. Please use secure context";
+        }
+        if (navigator.xr) {
+          navigator.xr.addEventListener('devicechange', checkSupportedState);
+          checkSupportedState();
+        } else {
+          document.getElementById("warning").innerText = "WebXR unavailable for this browser"; 
+        }
+  
+      }
+
+    function checkSupportedState() {
+        navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+          if (supported) {
+            xrButton.innerHTML = 'Enter AR';
+            xrButton.addEventListener('click', onButtonClicked);
+          } else {
+            xrButton.innerHTML = 'AR not found';
+          }
+          xrButton.disabled = !supported;
+        });
+      }
+
+    function onButtonClicked() {
+
+        if (!xrSession) {
+            navigator.xr.requestSession('immersive-ar', {
+                optionalFeatures: ['dom-overlay'],
+                requiredFeatures: ['hit-test'],
+                domOverlay: {root: document.getElementById('overlay')}
+            }).then(onSessionStarted, onRequestSessionError);
+        } else {
+          xrSession.end();
+        }
+       
+      }
+
+    function onSessionStarted(session) {
+        xrSession = session;
+        
+        xrButton.innerHTML = 'Exit AR';
+
+        // Show which type of DOM Overlay got enabled (if any)
+        if (session.domOverlayState) {
+          
+          //info.innerHTML = 'DOM Overlay type: ' + session.domOverlayState.type;
+        }
+
+        // create a canvas element and WebGL context for rendering
+        session.addEventListener('end', onSessionEnded);
+        let canvas = document.createElement('canvas');
+        
+        gl = canvas.getContext('webgl', { xrCompatible: true });
+        session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+        
+        // here we ask for viewer reference space, since we will be casting a ray
+        // from a viewer towards a detected surface. The results of ray and surface intersection
+        // will be obtained via xrHitTestSource variable
+        session.requestReferenceSpace('viewer').then((refSpace) => {
+          session.requestHitTestSource({ space: refSpace }).then((hitTestSource) => {
+            xrHitTestSource = hitTestSource;
+          });
+        });
+
+        session.requestReferenceSpace('local').then((refSpace) => {
+          xrRefSpace = refSpace;
+          session.requestAnimationFrame(onXRFrame);
+        });
+        
+        // initialize three.js scene
+        initScene(gl, session);
+        
+      }
+
+    function onRequestSessionError(ex) {
+        info.innerHTML = "Failed to start AR session.";
+        console.error(ex.message);
+      }
+
+    function onSessionEnded(event) {
+        xrSession = null;
+        xrButton.innerHTML = 'Enter AR';
+        info.innerHTML = '';
+        gl = null;
+        if (xrHitTestSource) xrHitTestSource.cancel();
+        xrHitTestSource = null;
+      }
+
+/*
+      function toggleAnimation() {
+        if (action.isRunning()) {
+            action.stop();
+            action.reset();
+          } else {
+            action.play();
+          }
+      }
+*/
+      // Utility function to update animated objects
+  /*    
+      function updateAnimation() {
+        
+        let dt = (Date.now() - lastFrame) / 1000;
+        lastFrame = Date.now();
+        if (mixer) {
+          mixer.update(dt);
+        }  
+      }
+*/
+      
+    function onXRFrame(t, frame) {
+        let session = frame.session;
+        session.requestAnimationFrame(onXRFrame);
+        
+        if (xrHitTestSource) {
+          // obtain hit test results by casting a ray from the center of device screen
+          // into AR view. Results indicate that ray intersected with one or more detected surfaces
+          const hitTestResults = frame.getHitTestResults(xrHitTestSource);
+          if (hitTestResults.length) {
+            // obtain a local pose at the intersection point
+            const pose = hitTestResults[0].getPose(xrRefSpace);
+            // place a reticle at the intersection point
+            reticle.matrix.fromArray(pose.transform.matrix);
+            reticle.visible = true;
+          }
+        } else {  // do not show a reticle if no surfaces are intersected
+          reticle.visible = false;
+        }
+
+        // update object animation
+        //updateAnimation();
+        // bind our gl context that was created with WebXR to threejs renderer
+        
+        //!!!!!!!!!!! riagganciare linea sotto
+        gl.bindFramebuffer(gl.FRAMEBUFFER, session.renderState.baseLayer.framebuffer);
+        
+        
+        // render the scene
+
+        if ( counter>=1) {
+        updateLine(matrixToVector(reticle.matrix));
+        }
+        renderer.render(scene, camera);
+      }
+
+      checkXR();
+    </script>
+  </body>
+</html>

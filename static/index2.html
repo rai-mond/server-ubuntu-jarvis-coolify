@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EasyRTC - Server Root</title>
+    <script type="text/javascript">
+        function forward(){ window.location = "demos/xr/indexTest.html";}
+    </script>
+           
+        
+        <!-- include firebase.js library -->
+        <script src="https://www.gstatic.com/firebasejs/7.14.0/firebase-app.js"></script>
+        <!-- include firebase realtime database library -->
+        <script src="https://www.gstatic.com/firebasejs/7.14.0/firebase-database.js"></script>
+        
+        
+        <script>
+          // Initialize Firebase 
+          // TODO: Replace with your project's customized code snippet
+          // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDUoyLmcLggRbNQ9p18jxJxoJM_YP_EYcg",
+  authDomain: "ds-server-root.firebaseapp.com",
+  projectId: "ds-server-root",
+  storageBucket: "ds-server-root.appspot.com",
+  messagingSenderId: "1065762591157",
+  appId: "1:1065762591157:web:ad27efaf13b155ea8dc9fc",
+  measurementId: "G-0X8CWKHNMK"
+};
+          firebase.initializeApp(firebaseConfig);
+        </script>
+    
+    
+</head>
+<body onload="setTimeout('forward()', 1)">
+    <h1>You have installed EasyRTC!</h1>
+
+    <h2>This is your server's Web Root</h2>
+
+    <p>This is the easiest location to put your own static html files for developing WebRTC applications.</p>
+
+    <p>In the meantime we'll forward you to <a href="./demos/">the EasyRTC Demo page</a>...</p>
+
+    <a href="http://www.easyrtc.com/"><img src="easyrtc/img/powered_by_easyrtc.png" width="200" height="60" alt="Powered by EasyRTC"></a>
+</body>
+</html>
